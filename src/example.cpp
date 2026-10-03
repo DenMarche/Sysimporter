@@ -1,3 +1,9 @@
+//
+// By lucef
+// 9/4/2026
+// Licensed under the MIT license
+//
+
 #include "SysImport.h"
 #include <windows.h>
 
@@ -5,16 +11,26 @@ int main() {
     using KiNtWriteVirtualMemory = NTSTATUS (__stdcall *)(HANDLE, PVOID, PVOID, SIZE_T, SIZE_T *);
     using KiNtCreateThreadEx = NTSTATUS (__stdcall *)(HANDLE *, ACCESS_MASK, PVOID, HANDLE, PVOID, PVOID, ULONG, SIZE_T, SIZE_T, SIZE_T, PVOID);
     
-    // Sysimporter automatically resolves the SSNs.
+    //
+    // SysImport automatically resolves the SSNs.
+    //
+    
     auto NtWriteVirtualMemory = SysImport::Resolve<KiNtWriteVirtualMemory>("NtWriteVirtualMemory");
     auto NtCreateThreadEx = SysImport::Resolve<KiNtCreateThreadEx>("NtCreateThreadEx");
+
+    //
+    // You can also use manual tables. See include/SysImport.cpp for the manual-table path.
+    //
     
-    // You can also use manual tables.
-    KiNtWriteVirtualMemory  Wvm = nullptr;
-    SysImport::SyscallTable<1> Table;
+    KiNtWriteVirtualMemory Wvm = nullptr;
+    SysImport::SyscallTable<1> Table{};
     SysImport::InitializeTable(Table);
     SysImport::AddEntry(Table, "NtWriteVirtualMemory", reinterpret_cast<void **>(&Wvm), 0);
     SysImport::ResolveTable(Table);
+    
+    //
+    // Silence unused warnings.
+    //
     
     (void)NtWriteVirtualMemory;
     (void)NtCreateThreadEx;
