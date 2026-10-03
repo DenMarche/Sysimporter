@@ -1,3 +1,9 @@
+//
+// By lucef
+// 9/4/2026
+// Licensed under the MIT license
+//
+
 #include "SysImport.h"
 #include <windows.h>
 #include <algorithm>
@@ -10,10 +16,20 @@
 namespace SysImport {
 namespace {
 
+//
+// Named export from a PE module.
+// Address is the resolved VA.
+//
+
 struct ExportEntry {
     std::string Name;
     void *Address;
 };
+
+//
+// ASCII lowercase, since we have nothing better to do.
+// WinAPI names are case-insensitive.
+//
 
 inline std::string ToLowerCopy(std::string_view View) {
     std::string Out(View);
@@ -23,6 +39,12 @@ inline std::string ToLowerCopy(std::string_view View) {
     return Out;
 }
 
+//
+// Detects inline hooks on a stub, since i know you guys will use this on protected games.
+// E9/EB = rel jmp, FF = indirect jmp/call, 48 B8 = mov rax, imm64.
+// Any hit means the SSN at +4 is hooked / tampered with, thus untrustworthy.
+//
+
 inline bool IsHooked(const void *Addr) noexcept {
     if (!Addr) return true;
     const unsigned char *Bytes = static_cast<const unsigned char *>(Addr);
@@ -31,12 +53,24 @@ inline bool IsHooked(const void *Addr) noexcept {
     return false;
 }
 
+//
+// A stub prologue usually looks like this:
+//   mov r10, rcx    ; 4C 8B D1
+//   mov eax, imm32  ; B8 xx xx xx xx  <- SSN
+// So it's pretty easy to just pattern scan each function like so.
+//
+
 inline bool IsSyscallPrologue(const void *Addr) noexcept {
     if (!Addr) return false;
     const unsigned char *B = static_cast<const unsigned char *>(Addr);
     if (B[0] == 0x4C && B[1] == 0x8B && B[2] == 0xD1 && B[3] == 0xB8) return true;
     return false;
 }
+
+//
+// Walks ntdll's PE export directory. DOS -> NT -> export dir -> Name / Function / Order arrays.
+// Returns empty on any parse failure.
+//
 
 std::vector<ExportEntry> GetNtdllExports() {
     std::vector<ExportEntry> Exports;
@@ -70,11 +104,19 @@ std::vector<ExportEntry> GetNtdllExports() {
     return Exports;
 }
 
+//
+// Resolved syscall consists of: Name, VA, and SSN, which we professionally read from +4.
+//
+
 struct SyscallCandidate {
     std::string Name;
     void *Address;
     std::uint32_t Number;
 };
+
+//
+// Filters ntdll exports to valid, unhooked syscall stubs.
+//
 
 std::vector<SyscallCandidate> BuildSyscallMap() {
     std::vector<SyscallCandidate> Map;
@@ -95,10 +137,18 @@ std::vector<SyscallCandidate> BuildSyscallMap() {
 
 } // namespace
 
+//
+// Pretty, thread safe, and statically initializes on first call. What else is there to dream of?
+//
+
 static std::vector<SyscallCandidate> &GetGlobalMap() {
     static std::vector<SyscallCandidate> Map = BuildSyscallMap();
     return Map;
 }
+
+//
+// Linear lookup; Returns 0 if not found.
+//
 
 std::uint32_t GetSyscallNumber(std::string_view FunctionName) noexcept {
     const std::string Key = ToLowerCopy(FunctionName);
@@ -108,6 +158,11 @@ std::uint32_t GetSyscallNumber(std::string_view FunctionName) noexcept {
     }
     return 0;
 }
+
+//
+// Resolves every entry in the caller's table against the global map.
+// Returns false if any entry could not be resolved.
+//
 
 bool ResolveTable(SyscallTableHeader *Table) noexcept {
     if (!Table || Table->EntryCount == 0) return false;
@@ -135,10 +190,18 @@ bool ResolveTable(SyscallTableHeader *Table) noexcept {
     return All;
 }
 
+//
+// Forces map build. Returns true if the map is non-empty.
+//
+
 bool ResolveAll() noexcept {
     (void)GetGlobalMap();
     return !GetGlobalMap().empty();
 }
+
+//
+// Populates the per-instance lookup.
+//
 
 Resolver::Resolver() : Initialized(false) {
     FunctionMap.clear();
@@ -151,6 +214,10 @@ Resolver::Resolver() : Initialized(false) {
     }
     Initialized = !FunctionMap.empty();
 }
+
+//
+// Rebuilds the instance map from the global map.
+//
 
 bool Resolver::ResolveAll() noexcept {
     const auto &Map = GetGlobalMap();
